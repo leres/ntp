@@ -521,7 +521,8 @@ struct peer {
 #define REFCLK_NEOCLOCK4X	44	/* NeoClock4X DCF77 or TDF receiver */
 #define REFCLK_TSYNCPCI		45	/* Spectracom TSYNC PCI timing board */
 #define REFCLK_GPSDJSON		46
-#define REFCLK_MAX		46
+#define REFCLK_JAVAD		47	/* Javad GREIS Satellite Receivers */
+#define REFCLK_MAX		47
 
 
 /*

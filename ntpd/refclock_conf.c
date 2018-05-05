@@ -263,6 +263,13 @@ extern struct refclock refclock_gpsdjson;
 #else
 #define refclock_gpsdjson refclock_none
 #endif
+
+#if defined(CLOCK_JAVAD) && defined(HAVE_PPSAPI)
+extern	struct refclock refclock_javad;
+#else
+#define refclock_javad refclock_none
+#endif
+
 /*
  * Order is clock_start(), clock_shutdown(), clock_poll(),
  * clock_control(), clock_init(), clock_buginfo, clock_flags;
@@ -316,7 +323,8 @@ struct refclock * const refclock_conf[] = {
 	&refclock_ripencc,	/* 43 REFCLK_RIPENCC */
 	&refclock_neoclock4x,	/* 44 REFCLK_NEOCLOCK4X */
 	&refclock_tsyncpci,	/* 45 REFCLK_TSYNCPCI */
-	&refclock_gpsdjson	/* 46 REFCLK_GPSDJSON */
+	&refclock_gpsdjson,	/* 46 REFCLK_GPSDJSON */
+	&refclock_javad,	/* 47 REFCLK_JAVAD */
 };
 
 u_char num_refclock_conf = sizeof(refclock_conf)/sizeof(struct refclock *);

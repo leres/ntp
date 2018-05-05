@@ -62,6 +62,7 @@ ntp_atom_ok=${ntp_atom_ok=no}
 ntp_oncore_ok=${ntp_oncore_ok=no}
 ntp_parse_ok=${ntp_parse_ok=no}
 ntp_ripe_ncc_ok=${ntp_parse_ok=no}
+ntp_javad_ok=${ntp_javad_ok=no}
 ntp_jupiter_ok=${ntp_jupiter_ok=no}
 
 NTP_PROG_CC
@@ -1656,6 +1657,7 @@ case "$ac_cv_c_inline$ntp_cv_struct_timespec" in
     case "$ac_cv_header_timepps_h$ac_cv_header_sys_timepps_h$host_os" in
      *yes* | *sunos* | *solaris* | *sco* | *netbsd* )
 	AC_DEFINE(HAVE_PPSAPI, 1, [Do we have the PPS API per the Draft RFC?])
+	ntp_javad_ok=yes
 	ntp_jupiter_ok=yes
 	ntp_oncore_ok=yes
 	ntp_parse_ok=yes
@@ -2191,6 +2193,25 @@ case "$ntp_ok" in
  yes)
     ntp_refclock=yes
     AC_DEFINE([CLOCK_JJY], [1], [JJY receiver?])
+    ;;
+esac
+AC_MSG_RESULT([$ntp_ok])
+
+AC_MSG_CHECKING([Javad GREIS Satellite Receiver])
+AC_ARG_ENABLE(
+    [JAVAD],
+    [AS_HELP_STRING(
+	[--enable-JAVAD],
+	[s Javad GREIS Satellite Receiver]
+    )],
+    [ntp_ok=$enableval], [ntp_ok=$ntp_eac])
+case "$ntp_javad_ok" in
+ no) ntp_ok=no ;;
+esac
+case "$ntp_ok" in
+ yes)
+    ntp_refclock=yes
+    AC_DEFINE([CLOCK_JAVAD], [1], [Javad GREIS Satellite Receiver?])
     ;;
 esac
 AC_MSG_RESULT([$ntp_ok])
