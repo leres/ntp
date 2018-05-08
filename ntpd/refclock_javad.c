@@ -40,8 +40,6 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#include "javad.h"
-
 #ifdef HAVE_PPSAPI
 # include "ppsapi_timepps.h"
 #endif
@@ -56,30 +54,27 @@
 
 /*
  * XXX
- * This driver supports the Rockwell Jupiter GPS Receiver board
- * adapted to precision timing applications.  It requires the
- * ppsclock line discipline or streams module described in the
- * Line Disciplines and Streams Drivers page. It also requires a
- * gadget box and 1-PPS level converter, such as described in the
- * Pulse-per-second (PPS) Signal Interfacing page.
+ * This driver supports Javad GREIS Satellite Receivers. 
  *
- * It may work (with minor modifications) with other Rockwell GPS
- * receivers such as the CityTracker.
+ * It requires the ppsclock line discipline or streams module
+ * described in the Line Disciplines and Streams Drivers page. It
+ * also requires a gadget box and 1-PPS level converter, such as
+ * described in the Pulse-per-second (PPS) Signal Interfacing page.
  */
 
 /*
  * GPS Definitions
  */
 #define	DEVICE		"/dev/gps%d"	/* device name and unit */
-#define	SPEED232	B9600		/* baud */
+#define	SPEED232	B115200		/* baud */
 
 /*
  * Radio interface parameters
  */
-#define	PRECISION	(-18)	/* precision assumed (about 4 us) */
-#define	REFID	"GPS\0"		/* reference id */
-#define	DESCRIPTION	"Javad GREIS Satellite Receiver" /* who we are */
-#define	DEFFUDGETIME	0	/* default fudge time (ms) */
+#define	PRECISION	(-18)		/* precision assumed (about 4 us) */
+#define	REFID		"GPS\0"		/* reference id */
+#define	DESCRIPTION	"Javad GREIS Satellite Receiver"
+#define	DEFFUDGETIME	0		/* default fudge time (ms) */
 
 /* Unix timestamp for the GPS epoch: January 6, 1980 */
 #define GPS_EPOCH 315964800
@@ -125,38 +120,46 @@ struct instance {
 /*
  * Function prototypes
  */
-static	void	javad_canmsg	(struct instance *, u_int);
-static	u_short	javad_cksum	(u_short *, u_int);
-static	int	javad_config	(struct instance *);
-static	void	javad_debug	(struct peer *, const char *,
-				 const char *, ...)
-			__attribute__ ((format (printf, 3, 4)));
-static	const char *	javad_parse_t	(struct instance *, u_short *);
-static	const char *	javad_parse_gpos	(struct instance *, u_short *);
-static	void	javad_platform	(struct instance *, u_int);
-static	void	javad_poll	(int, struct peer *);
-static	void	javad_control	(int, const struct refclockstat *,
-				 struct refclockstat *, struct peer *);
+static void javad_canmsg(struct instance *, u_int);
+static u_short javad_cksum(u_short *, u_int);
+static int javad_config(struct instance *);
+static void javad_debug(struct peer *, const char *, const char *, ...)
+    __attribute__ ((format (printf, 3, 4)));
+static const char *javad_parse_t(struct instance *, u_short *);
+static const char *javad_parse_gpos(struct instance *, u_short *);
+static void javad_platform(struct instance *, u_int);
+static void javad_poll(int, struct peer *);
+static void javad_control(int, const struct refclockstat *,
+    struct refclockstat *, struct peer *);
 #ifdef HAVE_PPSAPI
-static	int	javad_ppsapi	(struct instance *);
-static	int	javad_pps	(struct instance *);
+static int javad_ppsapi(struct instance *);
+static int javad_pps(struct instance *);
 #endif /* HAVE_PPSAPI */
-static	int	javad_recv	(struct instance *);
-static	void	javad_receive (struct recvbuf *rbufp);
-static	void	javad_reqmsg	(struct instance *, u_int, u_int);
-static	void	javad_reqonemsg(struct instance *, u_int);
-static	char *	javad_send	(struct instance *, struct jheader *);
-static	void	javad_shutdown(int, struct peer *);
-static	int	javad_start	(int, struct peer *);
+static int javad_recv(struct instance *);
+static void javad_receive(struct recvbuf *rbufp);
+static void javad_reqmsg(struct instance *, u_int, u_int);
+static void javad_reqonemsg(struct instance *, u_int);
+static void javad_shutdown(int, struct peer *);
+
+static int javad_start(int, struct peer *);
+
+#ifdef notdef
+static const char *javad_stop(struct instance *);
+static const char *javad_start2(struct instance *);
+#endif
+static const char *javad_send(struct instance *, const char *);
+#ifdef notdef
+static const char *javad_recvempty(struct instance *);
+#endif
 
 /*
  * Transfer vector
  */
-struct	refclock refclock_javad = {
+struct refclock refclock_javad = {
 	javad_start,		/* start up driver */
-	javad_shutdown,	/* shut down driver */
+	javad_shutdown,		/* shut down driver */
 	javad_poll,		/* transmit poll message */
-	javad_control,	/* (clock control) */
+	javad_control,		/* (clock control) */
 	noentry,		/* (clock init) */
 	noentry,		/* (clock buginfo) */
 	NOFLAGS			/* not used */
@@ -166,10 +169,7 @@ struct	refclock refclock_javad = {
  * javad_start - open the devices and initialize data for processing
  */
 static int
-javad_start(
-	int unit,
-	struct peer *peer
-	)
+javad_start(int unit, struct peer *peer)
 {
 	struct refclockproc *pp;
 	struct instance *instance;
@@ -182,8 +182,7 @@ javad_start(
 	snprintf(gpsdev, sizeof(gpsdev), DEVICE, unit);
 	fd = refclock_open(gpsdev, SPEED232, LDISC_RAW);
 	if (fd <= 0) {
-		javad_debug(peer, "javad_start", "open %s: %m",
-			      gpsdev);
+		javad_debug(peer, __func__, "open %s: %m", gpsdev);
 		return (0);
 	}
 
@@ -246,6 +245,7 @@ javad_shutdown(int unit, struct peer *peer)
 {
 	struct instance *instance;
 	struct refclockproc *pp;
+	// const char *errmsg;
 
 	pp = peer->procptr;
 	instance = pp->unitptr;
@@ -270,18 +270,22 @@ javad_shutdown(int unit, struct peer *peer)
 static int
 javad_config(struct instance *instance)
 {
+	const char *errmsg;
+
 	javad_debug(instance->peer, __func__, "init receiver");
 
 	/*
 	 * Initialize the unit variables
 	 */
 	instance->sloppyclockflag = instance->peer->procptr->sloppyclockflag;
+#ifdef notdef
 	instance->moving = !!(instance->sloppyclockflag & CLK_FLAG2);
 	if (instance->moving)
 		javad_debug(instance->peer, __func__, "mobile platform");
+#endif
 
-	instance->pollcnt     = 2;
-	instance->polled      = 0;
+	instance->pollcnt = 2;
+	instance->polled = 0;
 	instance->gpos_gweek = 0;
 	instance->gpos_sweek = 0;
 	instance->gweek = 0;
@@ -291,8 +295,35 @@ javad_config(struct instance *instance)
 	instance->ssize = 0;
 
 	/* Stop outputting all messages */
-	javad_canmsg(instance, JAVAD_ALL);
+	errmsg = javad_send(instance, "dm,/cur/term");
 
+	/* Don't output NEMA messages when UTC time is unavailable */
+	if (errmsg == NULL)
+		errmsg = javad_send(instance, "set,/par/nmea/notime,off");
+
+	/* GGA once a second */
+	if (errmsg == NULL)
+		errmsg = javad_send(instance, "em,,nmea/GGA:1");
+
+	// print,/par/pos/hold/alt:on		// on
+	// print,/par/nmea/notime:on		// off
+	// print,/par/pos/clk/fixpos:on		// on
+	// print,/par/dev/pps/a/out:on		// on
+	// print,/par/dev/pps/a/time:on		// utc
+	// print,/par/dev/pps/a/tied:on		// on
+	// print,/par/dev/pps/a/per/ms:on	// 1000
+	// print,/par/dev/pps/a/edge:on		// rise
+	// print,/par/dev/pps/a/time:on		// utc
+
+
+
+	/* How'd we do? */
+	if (errmsg != NULL) {
+		msyslog(LOG_ERR, "%s: init failed: %s", __func__, errmsg);
+		return (0);
+	}
+
+#ifdef notdef
 	/* Request the receiver id so we can syslog the firmware version */
 	javad_reqonemsg(instance, JAVAD_O_ID);
 
@@ -310,6 +341,7 @@ javad_config(struct instance *instance)
 		javad_platform(instance, JAVAD_I_PLAT_MED);
 	else
 		javad_platform(instance, JAVAD_I_PLAT_LOW);
+#endif
 
 	return (1);
 }
@@ -427,6 +459,7 @@ javad_pps(struct instance *instance)
 static void
 javad_poll(int unit, struct peer *peer)
 {
+#ifdef notdef
 	struct instance *instance;
 	struct refclockproc *pp;
 
@@ -458,6 +491,7 @@ javad_poll(int unit, struct peer *peer)
 	 */
 	instance->polled = 1;
 	pp->polls++;
+#endif
 }
 
 /*
@@ -506,199 +540,73 @@ javad_control(
 static void
 javad_receive(struct recvbuf *rbufp)
 {
-	size_t bpcnt;
-	int cc, size, ppsret;
-	time_t last_timecode;
-	u_int32 laststime;
-	const char *cp;
-	u_char *bp;
-	u_short *sp;
-	struct jid *ip;
-	struct jheader *hp;
+	// size_t bpcnt;
+	int len;
+	char ch;
+	// int cc, size;
+	// int ppsret;
+	// time_t last_timecode;
+	// u_int32 laststime;
+	char *cp, *eol;
+	// int numcrnl;
+	// u_short *sp;
+	// struct jid *ip;
+	// struct jheader *hp;
 	struct peer *peer;
 	struct refclockproc *pp;
 	struct instance *instance;
-	l_fp tstamp;
+	// l_fp tstamp;
 
 	/* Initialize pointers and read the timecode and timestamp */
 	peer = rbufp->recv_peer;
 	pp = peer->procptr;
 	instance = pp->unitptr;
 
-	bp = (u_char *)rbufp->recv_buffer;
-	bpcnt = rbufp->recv_length;
-
-	/* This shouldn't happen */
-	if (bpcnt > sizeof(instance->sbuf) - instance->ssize)
-		bpcnt = sizeof(instance->sbuf) - instance->ssize;
-
-	/* Append to input buffer */
-	memcpy((u_char *)instance->sbuf + instance->ssize, bp, bpcnt);
-	instance->ssize += bpcnt;
-
-	/* While there's at least a header and we parse an intact message */
-	while (instance->ssize > (int)sizeof(*hp) && (cc = javad_recv(instance)) > 0) {
-		instance->pollcnt = 2;
-
-		tstamp = rbufp->recv_time;
-		hp = (struct jheader *)instance->sbuf;
-		sp = (u_short *)(hp + 1);
-		size = cc - sizeof(*hp);
-		switch (getshort(hp->id)) {
-
-		case JAVAD_O_PULSE:
-			if (size != sizeof(struct jpulse)) {
-				javad_debug(peer, __func__,
-				    "pulse: len %d != %u",
-				    size, (int)sizeof(struct jpulse));
-				refclock_report(peer, CEVNT_BADREPLY);
-				break;
-			}
-
-			/*
-			 * There appears to be a firmware bug related
-			 * to the pulse message; in addition to the one
-			 * per second messages, we get an extra pulse
-			 * message once an hour (on the anniversary of
-			 * the cold start). It seems to come 200 ms
-			 * after the one requested. So if we've seen a
-			 * pulse message in the last 210 ms, we skip
-			 * this one.
-			 */
-			laststime = instance->stime;
-			instance->stime = DS2UI(((struct jpulse *)sp)->stime);
-			if (laststime != 0 && instance->stime - laststime <= 21) {
-				javad_debug(peer, __func__,
-				"avoided firmware bug (stime %.2f, laststime %.2f)",
-				(double)instance->stime * 0.01, (double)laststime * 0.01);
-				break;
-			}
-
-			/* Retrieve pps timestamp */
-			ppsret = javad_pps(instance);
-
-			/*
-			 * Add one second if msg received early
-			 * (i.e. before limit, a.k.a. fudgetime2) in
-			 * the second.
-			 */
-			L_SUB(&tstamp, &pp->lastrec);
-			if (!L_ISGEQ(&tstamp, &instance->limit))
-				++pp->lastrec.l_ui;
-
-			/* Parse timecode (even when there's no pps) */
-			last_timecode = instance->timecode;
-			if ((cp = javad_parse_t(instance, sp)) != NULL) {
-				javad_debug(peer, __func__,
-				    "pulse: %s", cp);
-				break;
-			}
-
-			/* Bail if we didn't get a pps timestamp */
-			if (ppsret)
-				break;
-
-			/* Bail if we don't have the last timecode yet */
-			if (last_timecode == 0)
-				break;
-
-			/* Add the new sample to a median filter */
-			tstamp.l_ui = JAN_1970 + (u_int32)last_timecode;
-			tstamp.l_uf = 0;
-
-			refclock_process_offset(pp, tstamp, pp->lastrec, pp->fudgetime1);
-
-			/*
-			 * The clock will blurt a timecode every second
-			 * but we only want one when polled.  If we
-			 * havn't been polled, bail out.
-			 */
-			if (!instance->polled)
-				break;
-			instance->polled = 0;
-
-			/*
-			 * It's a live one!  Remember this time.
-			 */
-
-			pp->lastref = pp->lastrec;
-			refclock_receive(peer);
-
-			/*
-			 * If we get here - what we got from the clock is
-			 * OK, so say so
-			 */
-			refclock_report(peer, CEVNT_NOMINAL);
-
-			/*
-			 * We have succeeded in answering the poll.
-			 * Turn off the flag and return
-			 */
-			instance->polled = 0;
-			break;
-
-		case JAVAD_O_GPOS:
-			if (size != sizeof(struct jgpos)) {
-				javad_debug(peer, __func__,
-				    "gpos: len %d != %u",
-				    size, (int)sizeof(struct jgpos));
-				refclock_report(peer, CEVNT_BADREPLY);
-				break;
-			}
-
-			if ((cp = javad_parse_gpos(instance, sp)) != NULL) {
-				javad_debug(peer, __func__,
-				    "gpos: %s", cp);
-				break;
-			}
-			break;
-
-		case JAVAD_O_ID:
-			if (size != sizeof(struct jid)) {
-				javad_debug(peer, __func__,
-				    "id: len %d != %u",
-				    size, (int)sizeof(struct jid));
-				refclock_report(peer, CEVNT_BADREPLY);
-				break;
-			}
-			/*
-			 * If we got this message because the Jupiter
-			 * just powered instance, it needs to be reconfigured.
-			 */
-			ip = (struct jid *)sp;
-			javad_debug(peer, __func__,
-			    "%s chan ver %s, %s (%s)",
-			    ip->chans, ip->vers, ip->date, ip->opts);
-			msyslog(LOG_DEBUG,
-			    "javad_receive: %s chan ver %s, %s (%s)",
-			    ip->chans, ip->vers, ip->date, ip->opts);
-			if (instance->wantid)
-				instance->wantid = 0;
-			else {
-				javad_debug(peer, __func__, "reset receiver");
-				javad_config(instance);
-				/*
-				 * Restore since javad_config() just
-				 * zeroed it
-				 */
-				instance->ssize = cc;
-			}
-			break;
-
-		default:
-			javad_debug(peer, __func__, "unknown message id %d",
-			    getshort(hp->id));
+	cp = (char *)rbufp->recv_buffer;
+	len = rbufp->recv_length;
+	eol = NULL;
+	while (len >= 2) {
+		--len;
+		if (*cp++ == '\r' && *cp == '\n') {
+			eol = cp;
 			break;
 		}
-		instance->ssize -= cc;
-		if (instance->ssize < 0) {
-			fprintf(stderr, "javad_recv: negative ssize!\n");
-			abort();
-		} else if (instance->ssize > 0)
-			memcpy(instance->sbuf, (u_char *)instance->sbuf + cc, instance->ssize);
 	}
+
+	if (eol == NULL)
+		return;
+
+	fprintf(stderr, "javad_receive: %d \"", rbufp->recv_length);
+
+	cp = (char *)rbufp->recv_buffer;
+	len = eol - cp;
+	while (len > 0) {
+		ch = *cp++;
+		--len;
+		if (ch == '\r')
+			fprintf(stderr, "\\r");
+		else if (ch == '\n')
+			fprintf(stderr, "\\n");
+		else if (!isprint(ch))
+			fprintf(stderr, "\\0%o", ((int)ch) & 0xff);
+		else
+			fprintf(stderr, "%c", ch);
+	}
+	fprintf(stderr, "\"\n");
+	/* Account for \r\n */
+	len += 2;
+	/* XXX check for negative ssize */
+	if (instance->ssize < 0) {
+		fprintf(stderr, "jupiter_recv: negative ssize!\n");
+		abort();
+	}
+	if (instance->ssize > 0)
+		memcpy(instance->sbuf, (char *)instance->sbuf + len,
+		    instance->ssize);
 }
 
+
+#ifdef notdef
 static const char *
 javad_parse_t(struct instance *instance, u_short *sp)
 {
@@ -858,17 +766,13 @@ javad_parse_gpos(struct instance *instance, u_short *sp)
 		cp, instance->gpos_gweek, instance->gpos_sweek);
 	return (NULL);
 }
+#endif
 
 /*
  * javad_debug - print debug messages
  */
 static void
-javad_debug(
-	struct peer *	peer,
-	const char *	function,
-	const char *	fmt,
-	...
-	)
+javad_debug(struct peer *peer, const char *function, const char *fmt, ...)
 {
 	char	buffer[200];
 	va_list	ap;
@@ -890,35 +794,73 @@ javad_debug(
 	va_end(ap);
 }
 
-/* Checksum and transmit a message to the Jupiter */
-static char *
-javad_send(struct instance *instance, struct jheader *hp)
+#ifdef notdef
+/* Stop all periodic messages */
+static const char *
+javad_stop(struct instance *instance)
 {
-	u_int len, size;
+	const char *errmsg;
+
+	errmsg = javad_send(instance, "%%dm,/cur/term");
+	if (errmsg != NULL)
+		errmsg = javad_recvempty(instance);
+	return (errmsg);
+}
+
+
+/* Stop all periodic messages */
+static const char *
+javad_start2(struct instance *instance)
+{
+	const char *errmsg;
+
+	errmsg = javad_send(instance, "%%em,,nmea/GGA:1");
+	if (errmsg != NULL)
+		errmsg = javad_recvempty(instance);
+	return (errmsg);
+}
+
+static const char *
+javad_recvempty(struct instance *instance)
+{
+	char *cp;
 	ssize_t cc;
-	u_short *sp;
-	static char errstr[132];
+	char buf[132];
 
-	size = sizeof(*hp);
-	hp->hsum = putshort(javad_cksum((u_short *)hp,
-	    (size / sizeof(u_short)) - 1));
-	len = getshort(hp->len);
-	if (len > 0) {
-		sp = (u_short *)(hp + 1);
-		sp[len] = putshort(javad_cksum(sp, len));
-		size += (len + 1) * sizeof(u_short);
+	/* XXX want to receive with short timeout */
+	cc = read(instance->peer->procptr->io.fd, buf, sizeof(buf));
+	cp = buf + strlen(buf) - 1;
+	if (cp >= buf && *cp == '\n')
+		*cp = '\0';
+fprintf(stderr, "javad_recv: \"%s\"\n", buf);
+	if (strcmp(buf, JAVAD_REPLY_EMPTY) != 0)
+		return ("Didn't receive expected response");
+	return (NULL);
+}
+#endif
+
+static const char *
+javad_send(struct instance *instance, const char *p)
+{
+	ssize_t size, cc;
+	char buf[132];
+	static char errmsg[132];
+
+	size = msnprintf(buf, sizeof(buf), "%s\r", p);
+	cc = write(instance->peer->procptr->io.fd, buf, size);
+	if (cc < 0) {
+		msnprintf(errmsg, sizeof(errmsg), "write: %m");
+		return (errmsg);
 	}
-
-	if ((cc = write(instance->peer->procptr->io.fd, (char *)hp, size)) < 0) {
-		msnprintf(errstr, sizeof(errstr), "write: %m");
-		return (errstr);
-	} else if (cc != (int)size) {
-		snprintf(errstr, sizeof(errstr), "short write (%zd != %u)", cc, size);
-		return (errstr);
+	if (cc != size) {
+		snprintf(errmsg, sizeof(errmsg), "short write (%zd != %zd)",
+		    cc, size);
+		return (errmsg);
 	}
 	return (NULL);
 }
 
+#ifdef notdef
 /* Request periodic message output */
 static struct {
 	struct jheader jheader;
@@ -930,12 +872,14 @@ static struct {
 	    JAVAD_FLAG_CONN | JAVAD_FLAG_LOG, 0 },
 	{ 0, 0, 0, 0 }
 };
+#endif
 
 /* An interval of zero means to output on trigger */
 static void
 javad_reqmsg(struct instance *instance, u_int id,
     u_int interval)
 {
+#ifdef notdef
 	struct jheader *hp;
 	struct jrequest *rp;
 	char *cp;
@@ -947,18 +891,22 @@ javad_reqmsg(struct instance *instance, u_int id,
 	rp->interval = putshort(interval);
 	if ((cp = javad_send(instance, hp)) != NULL)
 		javad_debug(instance->peer, __func__, "%u: %s", id, cp);
+#endif
 }
 
+#ifdef notdef
 /* Cancel periodic message output */
 static struct jheader canmsg = {
 	putshort(JAVAD_SYNC), 0, 0, 0,
 	JAVAD_FLAG_REQUEST | JAVAD_FLAG_NAK | JAVAD_FLAG_DISC,
 	0
 };
+#endif
 
 static void
 javad_canmsg(struct instance *instance, u_int id)
 {
+#ifdef notdef
 	struct jheader *hp;
 	char *cp;
 
@@ -966,18 +914,22 @@ javad_canmsg(struct instance *instance, u_int id)
 	hp->id = putshort(id);
 	if ((cp = javad_send(instance, hp)) != NULL)
 		javad_debug(instance->peer, __func__, "%u: %s", id, cp);
+#endif
 }
 
+#ifdef notdef
 /* Request a single message output */
 static struct jheader reqonemsg = {
 	putshort(JAVAD_SYNC), 0, 0, 0,
 	JAVAD_FLAG_REQUEST | JAVAD_FLAG_NAK | JAVAD_FLAG_QUERY,
 	0
 };
+#endif
 
 static void
 javad_reqonemsg(struct instance *instance, u_int id)
 {
+#ifdef notdef
 	struct jheader *hp;
 	char *cp;
 
@@ -985,8 +937,10 @@ javad_reqonemsg(struct instance *instance, u_int id)
 	hp->id = putshort(id);
 	if ((cp = javad_send(instance, hp)) != NULL)
 		javad_debug(instance->peer, __func__, "%u: %s", id, cp);
+#endif
 }
 
+#ifdef notdef
 /* Set the platform dynamics */
 static struct {
 	struct jheader jheader;
@@ -997,10 +951,12 @@ static struct {
 	    JAVAD_FLAG_REQUEST | JAVAD_FLAG_NAK, 0 },
 	{ 0, 0, 0 }
 };
+#endif
 
 static void
 javad_platform(struct instance *instance, u_int platform)
 {
+#ifdef notdef
 	struct jheader *hp;
 	struct jplat *pp;
 	char *cp;
@@ -1010,6 +966,7 @@ javad_platform(struct instance *instance, u_int platform)
 	pp->platform = putshort(platform);
 	if ((cp = javad_send(instance, hp)) != NULL)
 		javad_debug(instance->peer, __func__, "%u: %s", platform, cp);
+#endif
 }
 
 /* Checksum "len" shorts */
@@ -1026,6 +983,7 @@ javad_cksum(u_short *sp, u_int len)
 	return (~sum + 1);
 }
 
+#ifdef notdef
 /* Return the size of the next message (or zero if we don't have it all yet) */
 static int
 javad_recv(struct instance *instance)
@@ -1109,6 +1067,7 @@ javad_recv(struct instance *instance)
 	}
 	return (cc);
 }
+#endif
 
 #else /* not (REFCLOCK && CLOCK_JAVAD && HAVE_PPSAPI) */
 int refclock_javad_bs;
