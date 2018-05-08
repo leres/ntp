@@ -73,7 +73,7 @@
  */
 #define	PRECISION	(-18)		/* precision assumed (about 4 us) */
 #define	REFID		"GPS\0"		/* reference id */
-#define	DESCRIPTION	"Javad GREIS Satellite Receiver"
+#define	DESCRIPTION	"Javad Satellite Receiver"
 #define	DEFFUDGETIME	0		/* default fudge time (ms) */
 
 /* Unix timestamp for the GPS epoch: January 6, 1980 */
@@ -113,7 +113,7 @@ struct instance {
 	int wantid;			/* don't reconfig on channel id msg */
 	u_int  moving;			/* mobile platform? */
 	u_char sloppyclockflag;		/* fudge flags */
-	u_short sbuf[512];		/* local input buffer */
+	char ibuf[512];			/* local input buffer */
 	int ssize;			/* space used in sbuf */
 };
 
@@ -138,15 +138,10 @@ static int javad_pps(struct instance *);
 static int javad_recv(struct instance *);
 static void javad_receive(struct recvbuf *rbufp);
 static void javad_reqmsg(struct instance *, u_int, u_int);
-static void javad_reqonemsg(struct instance *, u_int);
 static void javad_shutdown(int, struct peer *);
 
 static int javad_start(int, struct peer *);
 
-#ifdef notdef
-static const char *javad_stop(struct instance *);
-static const char *javad_start2(struct instance *);
-#endif
 static const char *javad_send(struct instance *, const char *);
 #ifdef notdef
 static const char *javad_recvempty(struct instance *);
@@ -301,9 +296,9 @@ javad_config(struct instance *instance)
 	if (errmsg == NULL)
 		errmsg = javad_send(instance, "set,/par/nmea/notime,off");
 
-	/* GGA once a second */
+	/* RMC once a second */
 	if (errmsg == NULL)
-		errmsg = javad_send(instance, "em,,nmea/GGA:1");
+		errmsg = javad_send(instance, "em,,nmea/RMC:1");
 
 	// print,/par/pos/hold/alt:on		// on
 	// print,/par/nmea/notime:on		// off
@@ -322,26 +317,6 @@ javad_config(struct instance *instance)
 		msyslog(LOG_ERR, "%s: init failed: %s", __func__, errmsg);
 		return (0);
 	}
-
-#ifdef notdef
-	/* Request the receiver id so we can syslog the firmware version */
-	javad_reqonemsg(instance, JAVAD_O_ID);
-
-	/* Flag that this the id was requested (so we don't get called again) */
-	instance->wantid = 1;
-
-	/* Request perodic time mark pulse messages */
-	javad_reqmsg(instance, JAVAD_O_PULSE, 1);
-
-	/* Request perodic geodetic position status */
-	javad_reqmsg(instance, JAVAD_O_GPOS, 1);
-
-	/* Set application platform type */
-	if (instance->moving)
-		javad_platform(instance, JAVAD_I_PLAT_MED);
-	else
-		javad_platform(instance, JAVAD_I_PLAT_LOW);
-#endif
 
 	return (1);
 }
@@ -481,7 +456,7 @@ javad_poll(int unit, struct peer *peer)
 		refclock_report(peer, CEVNT_TIMEOUT);
 
 		/* Request the receiver id to trigger a reconfig */
-		javad_reqonemsg(instance, JAVAD_O_ID);
+		// javad_reqonemsg(instance, JAVAD_O_ID);
 		instance->wantid = 0;
 	}
 
@@ -540,8 +515,7 @@ javad_control(
 static void
 javad_receive(struct recvbuf *rbufp)
 {
-	// size_t bpcnt;
-	int len;
+	int len, i;
 	char ch;
 	// int cc, size;
 	// int ppsret;
@@ -564,25 +538,36 @@ javad_receive(struct recvbuf *rbufp)
 
 	cp = (char *)rbufp->recv_buffer;
 	len = rbufp->recv_length;
+
+	/* This shouldn't happen */
+	if (len > sizeof(instance->ibuf) - (instance->ssize - 1))
+		len = sizeof(instance->ibuf) - (instance->ssize - 1);
+
+	/* Append to input buffer */
+	strlcpy(instance->ibuf + instance->ssize, cp, len + 1);
+	instance->ssize += len;
+
+	/* See if have a complete message */
+	cp = instance->ibuf;
+	len = instance->ssize;
 	eol = NULL;
 	while (len >= 2) {
-		--len;
 		if (*cp++ == '\r' && *cp == '\n') {
-			eol = cp;
+			eol = cp + 1;
 			break;
 		}
+		--len;
 	}
 
 	if (eol == NULL)
 		return;
 
-	fprintf(stderr, "javad_receive: %d \"", rbufp->recv_length);
+	fprintf(stderr, "javad_receive: %d \"", instance->ssize);
 
-	cp = (char *)rbufp->recv_buffer;
+	cp = instance->ibuf;
 	len = eol - cp;
-	while (len > 0) {
+	for (i = len; i > 0; --i) {
 		ch = *cp++;
-		--len;
 		if (ch == '\r')
 			fprintf(stderr, "\\r");
 		else if (ch == '\n')
@@ -593,16 +578,22 @@ javad_receive(struct recvbuf *rbufp)
 			fprintf(stderr, "%c", ch);
 	}
 	fprintf(stderr, "\"\n");
-	/* Account for \r\n */
-	len += 2;
-	/* XXX check for negative ssize */
-	if (instance->ssize < 0) {
-		fprintf(stderr, "jupiter_recv: negative ssize!\n");
+
+
+	/* Housekeeping */
+	if (instance->ssize == len) {
+		instance->ibuf[0] = '\0';
+		instance->ssize = 0;
+	} else if (instance->ssize > len) {
+		/* Shift leftovers */
+		memcpy(instance->ibuf, (char *)instance->ibuf + len,
+		    instance->ssize + 1);
+		instance->ssize -= len;
+	} else {
+		fprintf(stderr, "jupiter_recv: ssize < len! (%d < %d)\n",
+		    instance->ssize, len);
 		abort();
 	}
-	if (instance->ssize > 0)
-		memcpy(instance->sbuf, (char *)instance->sbuf + len,
-		    instance->ssize);
 }
 
 
@@ -794,51 +785,6 @@ javad_debug(struct peer *peer, const char *function, const char *fmt, ...)
 	va_end(ap);
 }
 
-#ifdef notdef
-/* Stop all periodic messages */
-static const char *
-javad_stop(struct instance *instance)
-{
-	const char *errmsg;
-
-	errmsg = javad_send(instance, "%%dm,/cur/term");
-	if (errmsg != NULL)
-		errmsg = javad_recvempty(instance);
-	return (errmsg);
-}
-
-
-/* Stop all periodic messages */
-static const char *
-javad_start2(struct instance *instance)
-{
-	const char *errmsg;
-
-	errmsg = javad_send(instance, "%%em,,nmea/GGA:1");
-	if (errmsg != NULL)
-		errmsg = javad_recvempty(instance);
-	return (errmsg);
-}
-
-static const char *
-javad_recvempty(struct instance *instance)
-{
-	char *cp;
-	ssize_t cc;
-	char buf[132];
-
-	/* XXX want to receive with short timeout */
-	cc = read(instance->peer->procptr->io.fd, buf, sizeof(buf));
-	cp = buf + strlen(buf) - 1;
-	if (cp >= buf && *cp == '\n')
-		*cp = '\0';
-fprintf(stderr, "javad_recv: \"%s\"\n", buf);
-	if (strcmp(buf, JAVAD_REPLY_EMPTY) != 0)
-		return ("Didn't receive expected response");
-	return (NULL);
-}
-#endif
-
 static const char *
 javad_send(struct instance *instance, const char *p)
 {
@@ -925,20 +871,6 @@ static struct jheader reqonemsg = {
 	0
 };
 #endif
-
-static void
-javad_reqonemsg(struct instance *instance, u_int id)
-{
-#ifdef notdef
-	struct jheader *hp;
-	char *cp;
-
-	hp = &reqonemsg;
-	hp->id = putshort(id);
-	if ((cp = javad_send(instance, hp)) != NULL)
-		javad_debug(instance->peer, __func__, "%u: %s", id, cp);
-#endif
-}
 
 #ifdef notdef
 /* Set the platform dynamics */
